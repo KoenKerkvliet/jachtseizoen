@@ -247,6 +247,11 @@ async function joinGame() {
 function sessionScreen() {
   stopTimers();
 
+  if (game.status === 'ended') {
+    gameOverScreen();
+    return;
+  }
+
   if (game.status === 'playing' && game.ends_at) {
     gameScreen();
     return;
@@ -431,7 +436,10 @@ async function startSharedGame() {
 }
 
 async function refreshGameState() {
+  if (!game) return;
+
   const previousStatus = game.status;
+  const previousHealth = Number(game.boef_health_quarters);
   const healthResult = await window.supabaseClient.rpc('sync_game_health', { p_game_id: game.id });
   const healthGame = !healthResult.error && healthResult.data ? one(healthResult.data) : null;
 
@@ -441,7 +449,10 @@ async function refreshGameState() {
     return;
   }
 
-  if (healthGame) game = healthGame;
+  if (healthGame) {
+    game = healthGame;
+    if (Number(game.boef_health_quarters) !== previousHealth) renderHealth();
+  }
 
   const result = await window.supabaseClient.rpc('get_game_state', { p_game_id: game.id });
   if (!result.error) {
@@ -451,7 +462,10 @@ async function refreshGameState() {
       sessionScreen();
       return;
     }
-    if (nextGame) game = nextGame;
+    if (nextGame) {
+      game = nextGame;
+      if (Number(game.boef_health_quarters) !== previousHealth) renderHealth();
+    }
   }
 
   if (game && game.status === 'lobby') {
@@ -464,6 +478,14 @@ function watchGame() {
   stateTimer = setInterval(refreshGameState, 2000);
 }
 
+function gameOverScreen() {
+  stopTimers();
+  const vangersWin = Number(game.boef_health_quarters) <= 0;
+  app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
+    + '<section class="timer"><small>Spel afgelopen</small><div class="clock">' + (vangersWin ? 'GEVONDEN!' : 'KLAAR!') + '</div></section>'
+    + '<section class="card"><h2>' + (vangersWin ? 'De vangers winnen' : 'De sessie is beëindigd') + '</h2><p>' + (vangersWin ? 'De boevenkracht is helemaal op doordat foto-hints te laat waren.' : 'Bedankt voor het spelen.') + '</p><button class="primary" onclick="leaveLobby()">Terug naar start <span>→</span></button></section>';
+}
+
 function gameScreen() {
   stopTimers();
   const role = roles[selectedRole];
@@ -471,22 +493,37 @@ function gameScreen() {
     + '<div class="status"><span class="dot"></span> Spel is bezig</div>'
     + '<section class="timer"><small>Jouw rol: ' + role[0] + ' ' + role[1] + '</small><div class="clock" id="clock">--:--</div></section>'
     + '<div id="game-map" class="area-map"></div>'
-    + '<section class="card"><h2>Boevenkracht</h2><p style="font-size:1.55rem;letter-spacing:.08em;margin:6px 0">' + hearts(game.boef_health_quarters) + '</p><p>' + (game.boef_health_quarters <= 0 ? 'De boeven zijn af — de vangers winnen.' : 'Te late foto-hints kosten een kwart hart per 30 seconden.') + '</p></section>'
+    + '<section id="health-panel" class="card"></section>'
     + '<section id="hint-panel" class="card mission"><span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Hints worden geladen…</p></div></section>'
     + (isLeader ? '<button class="secondary" onclick="stopGame()">Stop spel en verwijder foto-hints <span>■</span></button>' : '')
     + '<p class="tiny">Deze klok komt uit de gedeelde eindtijd van de sessie.</p>';
 
   initPlayAreaMap('game-map', false);
+  renderHealth();
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
   loadHints(false);
   hintTimer = setInterval(function () { loadHints(true); }, 4000);
+  watchGame();
 }
 
 function hearts(quarters) {
-  const full = Math.floor((quarters || 0) / 4);
-  const part = (quarters || 0) % 4;
-  return '♥'.repeat(full) + (part ? '♡' : '') + '♡'.repeat(Math.max(0, 3 - full - (part ? 1 : 0)));
+  const total = Math.max(0, Math.min(12, Number(quarters) || 0));
+  const assets = ['heart-empty.svg', 'heart-quarter.svg', 'heart-half.svg', 'heart-three-quarter.svg', 'heart-full.svg'];
+  let markup = '<div class="heart-meter" aria-label="Boevenkracht: ' + total + ' van 12 kwart harten">';
+  for (let index = 0; index < 3; index += 1) {
+    const fill = Math.max(0, Math.min(4, total - (index * 4)));
+    markup += '<img src="assets/hearts/' + assets[fill] + '" alt="">';
+  }
+  return markup + '</div>';
+}
+
+function renderHealth() {
+  const panel = document.querySelector('#health-panel');
+  if (!panel || !game) return;
+  const health = Number(game.boef_health_quarters) || 0;
+  panel.innerHTML = '<h2>Boevenkracht</h2>' + hearts(health)
+    + '<p>' + (health <= 0 ? 'De boeven zijn af — de vangers winnen.' : 'Te late foto-hints kosten een kwart hart per 30 seconden.') + '</p>';
 }
 
 function hintIntervalMs() {
