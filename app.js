@@ -25,17 +25,7 @@ function home() {
 }
 
 function back() {
-  async function initialize() {
-  app.innerHTML = '<p class="tiny">Veilige spelverbinding wordt gemaakt…</p>';
-  try {
-    await ensureAnonymousSession();
-    home();
-  } catch (error) {
-    app.innerHTML = '<section class="card"><h2>Verbinding mislukt</h2><p>Controleer of tijdelijk anoniem deelnemen in Supabase aanstaat en vernieuw daarna de pagina.</p></section>';
-  }
-}
-
-initialize();
+  home();
 }
 
 function createScreen() {
@@ -173,4 +163,14 @@ function beginCountdown() {
   document.querySelector('.status').innerHTML = '<span class="dot"></span> Spel is bezig';
 }
 
-home();
+async function initialize() {
+  app.innerHTML = '<p class="tiny">Veilige spelverbinding wordt gemaakt…</p>';
+  try {
+    await ensureAnonymousSession();
+    home();
+  } catch (error) {
+    app.innerHTML = '<section class="card"><h2>Verbinding mislukt</h2><p>Controleer of tijdelijk anoniem deelnemen in Supabase aanstaat en vernieuw daarna de pagina.</p></section>';
+  }
+}
+
+initialize();
