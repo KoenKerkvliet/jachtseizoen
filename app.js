@@ -95,7 +95,8 @@ function createScreen() {
     + '<p class="form-copy">Jij bent de spelleider en kunt zelf gewoon meespelen.</p>'
     + '<label>Jouw naam</label><input id="hostName" placeholder="Bijvoorbeeld: Koen" maxlength="20">'
     + '<label>Naam van het spel</label><input id="gameName" value="Jachtseizoen in de buurt" maxlength="40">'
-    + '<label>Speelduur</label><select id="duration"><option value="45">45 minuten</option><option value="60" selected>1 uur</option><option value="90">1 uur en 30 minuten</option></select>'
+    + '<label>Speelduur</label><select id="duration"><option value="30">30 minuten</option><option value="45">45 minuten</option><option value="60" selected>1 uur</option><option value="90">1 uur en 30 minuten</option><option value="120">2 uur</option></select>'
+    + '<label>Foto-opdracht</label><select id="hintInterval"><option value="3">Elke 3 minuten</option><option value="5">Elke 5 minuten</option><option value="7" selected>Elke 7 minuten</option><option value="10">Elke 10 minuten</option></select>'
     + '<label>Startadres</label><input id="startAddress" placeholder="Bijvoorbeeld: Dorpsstraat 12" maxlength="80">'
     + '<label>Plaats</label><input id="startCity" placeholder="Bijvoorbeeld: Utrecht" maxlength="60">'
     + '<p class="map-note">De kaart focust op dit adres. Het adres wordt alleen binnen de sessie gedeeld.</p>'
@@ -107,6 +108,7 @@ function chooseRole(role) {
   const playerName = document.querySelector('#hostName').value;
   const gameName = document.querySelector('#gameName').value;
   const duration = document.querySelector('#duration').value;
+  const hintInterval = document.querySelector('#hintInterval').value;
   const startAddress = document.querySelector('#startAddress').value;
   const startCity = document.querySelector('#startCity').value;
 
@@ -116,6 +118,7 @@ function chooseRole(role) {
   document.querySelector('#hostName').value = playerName;
   document.querySelector('#gameName').value = gameName;
   document.querySelector('#duration').value = duration;
+  document.querySelector('#hintInterval').value = hintInterval;
   document.querySelector('#startAddress').value = startAddress;
   document.querySelector('#startCity').value = startCity;
 }
@@ -124,6 +127,7 @@ async function createGame() {
   const name = document.querySelector('#gameName').value.trim() || 'Jachtseizoen';
   const playerName = document.querySelector('#hostName').value.trim();
   const duration = Number(document.querySelector('#duration').value);
+  const hintInterval = Number(document.querySelector('#hintInterval').value);
   const startAddress = document.querySelector('#startAddress').value.trim();
   const startCity = document.querySelector('#startCity').value.trim();
   const button = document.querySelector('.primary');
@@ -149,7 +153,8 @@ async function createGame() {
       p_title: name,
       p_duration_minutes: duration,
       p_display_name: playerName,
-      p_role: selectedRole
+      p_role: selectedRole,
+      p_hint_interval_minutes: hintInterval
     });
     if (result.error) throw result.error;
 
@@ -426,6 +431,9 @@ async function startSharedGame() {
 }
 
 async function refreshGameState() {
+  const healthResult = await window.supabaseClient.rpc('sync_game_health', { p_game_id: game.id });
+  if (!healthResult.error && healthResult.data) game = one(healthResult.data);
+
   const result = await window.supabaseClient.rpc('get_game_state', { p_game_id: game.id });
   if (!result.error) {
     const nextGame = one(result.data);
@@ -453,6 +461,7 @@ function gameScreen() {
     + '<div class="status"><span class="dot"></span> Spel is bezig</div>'
     + '<section class="timer"><small>Jouw rol: ' + role[0] + ' ' + role[1] + '</small><div class="clock" id="clock">--:--</div></section>'
     + '<div id="game-map" class="area-map"></div>'
+    + '<section class="card"><h2>Boevenkracht</h2><p style="font-size:1.55rem;letter-spacing:.08em;margin:6px 0">' + hearts(game.boef_health_quarters) + '</p><p>' + (game.boef_health_quarters <= 0 ? 'De boeven zijn af — de vangers winnen.' : 'Te late foto-hints kosten een kwart hart per 30 seconden.') + '</p></section>'
     + '<section id="hint-panel" class="card mission"><span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Hints worden geladen…</p></div></section>'
     + (isLeader ? '<button class="secondary" onclick="stopGame()">Stop spel en verwijder foto-hints <span>■</span></button>' : '')
     + '<p class="tiny">Deze klok komt uit de gedeelde eindtijd van de sessie.</p>';
@@ -464,14 +473,24 @@ function gameScreen() {
   hintTimer = setInterval(function () { loadHints(true); }, 4000);
 }
 
+function hearts(quarters) {
+  const full = Math.floor((quarters || 0) / 4);
+  const part = (quarters || 0) % 4;
+  return '♥'.repeat(full) + (part ? '♡' : '') + '♡'.repeat(Math.max(0, 3 - full - (part ? 1 : 0)));
+}
+
+function hintIntervalMs() {
+  return Number(game.hint_interval_minutes || 7) * 60000;
+}
+
 function currentHintRound() {
-  return Math.floor((Date.now() - new Date(game.start_at).getTime()) / 300000);
+  return Math.floor((Date.now() - new Date(game.start_at).getTime()) / hintIntervalMs());
 }
 
 function secondsUntilNextHint() {
   const start = new Date(game.start_at).getTime();
   const elapsed = Date.now() - start;
-  return Math.max(0, Math.ceil((300000 - (elapsed % 300000)) / 1000));
+  return Math.max(0, Math.ceil((hintIntervalMs() - (elapsed % hintIntervalMs())) / 1000));
 }
 
 function hintTime(seconds) {
