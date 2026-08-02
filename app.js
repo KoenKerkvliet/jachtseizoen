@@ -12,6 +12,7 @@ let knownHintIds = new Set();
 let lobbyPlayers = [];
 let areaMap = null;
 let areaLayer = null;
+let areaPointLayer = null;
 let areaPoints = [];
 let isDrawingArea = false;
 const ACTIVE_SESSION_KEY = 'jachtseizoen-active-session';
@@ -61,7 +62,7 @@ function stopTimers() {
   clearInterval(clockTimer);
   clearInterval(stateTimer);
   clearInterval(hintTimer);
-  if (areaMap) { areaMap.remove(); areaMap = null; areaLayer = null; }
+  if (areaMap) { areaMap.remove(); areaMap = null; areaLayer = null; areaPointLayer = null; }
   clockTimer = null;
   stateTimer = null;
   hintTimer = null;
@@ -311,6 +312,7 @@ function initPlayAreaMap(elementId, editable) {
 function renderPlayArea() {
   if (!areaMap) return;
   if (areaLayer) areaMap.removeLayer(areaLayer);
+  if (areaPointLayer) areaMap.removeLayer(areaPointLayer);
   if (!areaPoints.length) return;
 
   areaLayer = areaPoints.length >= 3
@@ -318,9 +320,9 @@ function renderPlayArea() {
     : L.polyline(areaPoints, { color: '#174c3f', weight: 3 }).addTo(areaMap);
 
   if (isDrawingArea) {
-    areaPoints.forEach(function (point) {
-      L.circleMarker(point, { radius: 6, color: '#ff6b5b', fillOpacity: 1 }).addTo(areaMap);
-    });
+    areaPointLayer = L.layerGroup(areaPoints.map(function (point) {
+      return L.circleMarker(point, { radius: 6, color: '#ff6b5b', fillOpacity: 1 });
+    })).addTo(areaMap);
   }
 }
 
@@ -397,6 +399,17 @@ function renderLobbyPlayers() {
 
 async function startSharedGame() {
   const button = document.querySelector('.primary');
+  const playersResult = await window.supabaseClient
+    .from('players')
+    .select('role')
+    .eq('game_id', game.id);
+
+  const rolesInGame = (playersResult.data || []).map(function (player) { return player.role; });
+  if (!rolesInGame.includes('boef') || !rolesInGame.includes('vanger')) {
+    alert('Er moet minimaal één boef én één vanger in de lobby zitten voordat je start.');
+    return;
+  }
+
   button.disabled = true;
   button.textContent = 'Spel starten…';
 
