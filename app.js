@@ -513,7 +513,7 @@ function hearts(quarters) {
   let markup = '<div class="heart-meter" aria-label="Boevenkracht: ' + total + ' van 12 kwart harten">';
   for (let index = 0; index < 3; index += 1) {
     const fill = Math.max(0, Math.min(4, total - (index * 4)));
-    markup += '<img src="assets/hearts/' + assets[fill] + '" alt="">';
+    markup += '<img src="' + assets[fill] + '" alt="">';
   }
   return markup + '</div>';
 }
