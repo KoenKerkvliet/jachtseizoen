@@ -8,8 +8,12 @@ const roles = {
   leider: ['🎯', 'Leider']
 };
 
-function newCode() {
-  return Math.random().toString(36).slice(2, 6).toUpperCase();
+async function ensureAnonymousSession() {
+  const current = await window.supabaseClient.auth.getSession();
+  if (current.data.session) return;
+
+  const result = await window.supabaseClient.auth.signInAnonymously();
+  if (result.error) throw result.error;
 }
 
 function home() {
@@ -21,7 +25,17 @@ function home() {
 }
 
 function back() {
-  home();
+  async function initialize() {
+  app.innerHTML = '<p class="tiny">Veilige spelverbinding wordt gemaakt…</p>';
+  try {
+    await ensureAnonymousSession();
+    home();
+  } catch (error) {
+    app.innerHTML = '<section class="card"><h2>Verbinding mislukt</h2><p>Controleer of tijdelijk anoniem deelnemen in Supabase aanstaat en vernieuw daarna de pagina.</p></section>';
+  }
+}
+
+initialize();
 }
 
 function createScreen() {
@@ -34,6 +48,7 @@ function createScreen() {
   app.innerHTML = '<button class="back" onclick="back()">← Terug</button>'
     + '<h1 class="form-title">Maak het spel<br>jullie eigen.</h1>'
     + '<p class="form-copy">Begin klein: we kunnen het speelgebied en de spelregels later verfijnen.</p>'
+    + '<label>Jouw naam</label><input id="hostName" placeholder="Bijvoorbeeld: Koen" maxlength="20">'
     + '<label>Naam van het spel</label><input id="gameName" value="Jachtseizoen in de buurt" maxlength="40">'
     + '<label>Speelduur</label><select id="duration"><option value="45">45 minuten</option><option value="60" selected>1 uur</option><option value="90">1 uur en 30 minuten</option></select>'
     + '<label>Jouw rol</label><div class="choice-grid">' + roleButtons + '</div>'
@@ -45,13 +60,39 @@ function chooseRole(role) {
   createScreen();
 }
 
-function startGame() {
+async function startGame() {
   const name = document.querySelector('#gameName').value.trim() || 'Jachtseizoen';
+  const playerName = document.querySelector('#hostName').value.trim();
+  const duration = Number(document.querySelector('#duration').value);
+
+  if (playerName.length < 2) {
+    alert('Vul je naam in.');
+    return;
+  }
+
+  const button = document.querySelector('.primary');
+  button.disabled = true;
+  button.textContent = 'Sessie maken…';
+
+  const result = await window.supabaseClient.rpc('create_game', {
+    p_title: name,
+    p_duration_minutes: duration,
+    p_display_name: playerName,
+    p_role: selectedRole
+  });
+
+  if (result.error) {
+    alert('Er ging iets mis: ' + result.error.message);
+    button.disabled = false;
+    button.innerHTML = 'Maak sessie <span>→</span>';
+    return;
+  }
+
   game = {
-    name: name,
+    name: result.data.title,
     role: selectedRole,
-    code: newCode(),
-    minutes: Number(document.querySelector('#duration').value)
+    code: result.data.join_code,
+    minutes: result.data.duration_minutes
   };
   gameScreen();
 }
@@ -59,18 +100,45 @@ function startGame() {
 function joinScreen() {
   app.innerHTML = '<button class="back" onclick="back()">← Terug</button>'
     + '<h1 class="form-title">Sluit je aan.</h1><p class="form-copy">Vraag de vierlettercode aan de spelleider.</p>'
-    + '<label>Jouw naam</label><input id="playerName" placeholder="Bijvoorbeeld: Koen">'
+    + '<label>Jouw naam</label><input id="playerName" placeholder="Bijvoorbeeld: Koen" maxlength="20">'
+    + '<label>Jouw rol</label><select id="joinRole"><option value="vanger">🧭 Vanger</option><option value="boef">🕶️ Boef</option><option value="leider">🎯 Spelleider</option></select>'
     + '<label>Sessiecode</label><input id="joinCode" placeholder="ABCD" maxlength="4" style="text-transform:uppercase;letter-spacing:.15em">'
     + '<button class="primary" style="margin-top:26px" onclick="joinGame()">Ga naar het spel <span>→</span></button>';
 }
 
-function joinGame() {
+async function joinGame() {
   const gameCode = document.querySelector('#joinCode').value.trim().toUpperCase();
-  if (gameCode.length !== 4) {
-    alert('Vul een code van vier letters in.');
+  const playerName = document.querySelector('#playerName').value.trim();
+  const role = document.querySelector('#joinRole').value;
+
+  if (gameCode.length !== 4 || playerName.length < 2) {
+    alert('Vul je naam en een code van vier tekens in.');
     return;
   }
-  game = { name: 'Jachtseizoen', code: gameCode, role: 'vanger', minutes: 60 };
+
+  const button = document.querySelector('.primary');
+  button.disabled = true;
+  button.textContent = 'Verbinden…';
+
+  const result = await window.supabaseClient.rpc('join_game', {
+    p_join_code: gameCode,
+    p_display_name: playerName,
+    p_role: role
+  });
+
+  if (result.error) {
+    alert('Er ging iets mis: ' + result.error.message);
+    button.disabled = false;
+    button.innerHTML = 'Ga naar het spel <span>→</span>';
+    return;
+  }
+
+  game = {
+    name: result.data.title,
+    code: result.data.join_code,
+    role: role,
+    minutes: result.data.duration_minutes
+  };
   gameScreen();
 }
 
