@@ -351,6 +351,7 @@ function updateClock() {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   clock.textContent = String(minutes).padStart(2, '0') + ':' + String(remainder).padStart(2, '0');
+  renderHintPanel();
 
   if (seconds === 0) {
     clearInterval(clockTimer);
