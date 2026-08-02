@@ -10,6 +10,10 @@ let ownPlayerId = null;
 let hintTimer = null;
 let knownHintIds = new Set();
 let lobbyPlayers = [];
+let areaMap = null;
+let areaLayer = null;
+let areaPoints = [];
+let isDrawingArea = false;
 const ACTIVE_SESSION_KEY = 'jachtseizoen-active-session';
 
 function rememberSession() {
@@ -57,6 +61,7 @@ function stopTimers() {
   clearInterval(clockTimer);
   clearInterval(stateTimer);
   clearInterval(hintTimer);
+  if (areaMap) { areaMap.remove(); areaMap = null; areaLayer = null; }
   clockTimer = null;
   stateTimer = null;
   hintTimer = null;
@@ -200,20 +205,105 @@ function sessionScreen() {
     return;
   }
 
+  const hasArea = Array.isArray(game.play_area) && game.play_area.length >= 3;
   const leaderAction = isLeader
-    ? '<button class="primary" style="margin-top:20px" onclick="startSharedGame()">Start het spel <span>▶</span></button><button class="secondary" onclick="stopGame()">Stop sessie <span>■</span></button>'
+    ? (hasArea
+      ? '<button class="primary" style="margin-top:20px" onclick="startSharedGame()">Start het spel <span>▶</span></button>'
+      : '<button class="primary" style="margin-top:20px" disabled>Maak eerst een speelgebied</button>')
+      + '<button class="secondary" onclick="stopGame()">Stop sessie <span>■</span></button>'
     : '<section class="card mission" style="margin-top:20px"><span class="mission-icon">⏳</span><div><h2>Bijna zover</h2><p>De spelleider start het spel zodra iedereen klaar is.</p></div></section>';
 
   app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
     + '<section class="timer"><small>Spel wordt voorbereid</small><div class="clock">KLAAR?</div></section>'
     + '<section class="card mission"><span class="mission-icon">👥</span><div><h2>De lobby is open</h2><p>Deel code <strong>' + game.join_code + '</strong> met je groep. Iedereen ziet de gedeelde start zodra de spelleider begint.</p></div></section>'
+    + '<section class="card"><h2>Speelgebied</h2><p class="map-note">' + (hasArea ? 'Dit gebied is opgeslagen voor alle spelers.' : (isLeader ? 'Tik op de kaart om een organische grens te tekenen.' : 'De spelleider tekent het speelgebied.')) + '</p><div id="area-map" class="area-map"></div>' + (isLeader ? '<div class="map-tools"><button class="secondary" onclick="toggleAreaDrawing()">Teken / wijzig</button><button class="secondary" onclick="undoAreaPoint()">Punt terug</button></div><button class="primary" style="margin-top:10px" onclick="savePlayArea()">Gebied opslaan <span>✓</span></button>' : '') + '</section>'
     + '<section id="lobby-players" class="card"><h2>Deelnemers</h2><p>Deelnemers laden…</p></section>'
     + leaderAction
     + '<button class="back" style="margin-top:22px" onclick="leaveLobby()">← Lobby verlaten</button>'
     + '<p class="tiny">Jouw speelrol: ' + roles[selectedRole][0] + ' ' + roles[selectedRole][1] + '</p>';
 
+  initPlayAreaMap('area-map', isLeader);
   loadLobbyPlayers();
   watchGame();
+}
+
+function initPlayAreaMap(elementId, editable) {
+  const element = document.getElementById(elementId);
+  if (!element || !window.L) return;
+
+  if (areaMap) areaMap.remove();
+  areaMap = L.map(element, { zoomControl: true }).setView([52.1326, 5.2913], 8);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(areaMap);
+
+  areaPoints = Array.isArray(game.play_area) ? game.play_area.map(function (point) { return [point[0], point[1]]; }) : [];
+  isDrawingArea = false;
+  renderPlayArea();
+
+  if (areaPoints.length >= 3) {
+    areaMap.fitBounds(areaPoints, { padding: [24, 24] });
+  } else if (editable) {
+    areaMap.setView([52.0907, 5.1214], 13);
+  }
+
+  if (editable) {
+    areaMap.on('click', function (event) {
+      if (!isDrawingArea) return;
+      areaPoints.push([event.latlng.lat, event.latlng.lng]);
+      renderPlayArea();
+    });
+  }
+}
+
+function renderPlayArea() {
+  if (!areaMap) return;
+  if (areaLayer) areaMap.removeLayer(areaLayer);
+  if (!areaPoints.length) return;
+
+  areaLayer = areaPoints.length >= 3
+    ? L.polygon(areaPoints, { color: '#174c3f', fillColor: '#4fc27d', fillOpacity: 0.2, weight: 3 }).addTo(areaMap)
+    : L.polyline(areaPoints, { color: '#174c3f', weight: 3 }).addTo(areaMap);
+
+  if (isDrawingArea) {
+    areaPoints.forEach(function (point) {
+      L.circleMarker(point, { radius: 6, color: '#ff6b5b', fillOpacity: 1 }).addTo(areaMap);
+    });
+  }
+}
+
+function toggleAreaDrawing() {
+  isDrawingArea = !isDrawingArea;
+  if (isDrawingArea) alert('Tik op de kaart langs de grens van het speelgebied. Plaats minimaal drie punten en klik daarna op Gebied opslaan.');
+  renderPlayArea();
+}
+
+function undoAreaPoint() {
+  if (!isLeader || !areaPoints.length) return;
+  areaPoints.pop();
+  renderPlayArea();
+}
+
+async function savePlayArea() {
+  if (areaPoints.length < 3) {
+    alert('Plaats minimaal drie punten op de kaart.');
+    return;
+  }
+
+  const result = await window.supabaseClient.rpc('set_play_area', {
+    p_game_id: game.id,
+    p_area: areaPoints
+  });
+
+  if (result.error) {
+    alert('Speelgebied opslaan lukt niet: ' + result.error.message);
+    return;
+  }
+
+  game = one(result.data);
+  isDrawingArea = false;
+  sessionScreen();
 }
 
 function leaveLobby() {
@@ -298,11 +388,12 @@ function gameScreen() {
   app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
     + '<div class="status"><span class="dot"></span> Spel is bezig</div>'
     + '<section class="timer"><small>Jouw rol: ' + role[0] + ' ' + role[1] + '</small><div class="clock" id="clock">--:--</div></section>'
-    + '<div class="map"><span class="pin"></span><span class="map-label">Speelgebied volgt hier</span></div>'
+    + '<div id="game-map" class="area-map"></div>'
     + '<section id="hint-panel" class="card mission"><span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Hints worden geladen…</p></div></section>'
     + (isLeader ? '<button class="secondary" onclick="stopGame()">Stop spel en verwijder foto-hints <span>■</span></button>' : '')
     + '<p class="tiny">Deze klok komt uit de gedeelde eindtijd van de sessie.</p>';
 
+  initPlayAreaMap('game-map', false);
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
   loadHints(false);
