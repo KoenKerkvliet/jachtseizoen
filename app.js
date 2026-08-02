@@ -201,10 +201,19 @@ function sessionScreen() {
     + '<section class="card mission"><span class="mission-icon">👥</span><div><h2>De lobby is open</h2><p>Deel code <strong>' + game.join_code + '</strong> met je groep. Iedereen ziet de gedeelde start zodra de spelleider begint.</p></div></section>'
     + '<section id="lobby-players" class="card"><h2>Deelnemers</h2><p>Deelnemers laden…</p></section>'
     + leaderAction
+    + '<button class="back" style="margin-top:22px" onclick="leaveLobby()">← Lobby verlaten</button>'
     + '<p class="tiny">Jouw speelrol: ' + roles[selectedRole][0] + ' ' + roles[selectedRole][1] + '</p>';
 
   loadLobbyPlayers();
   watchGame();
+}
+
+function leaveLobby() {
+  stopTimers();
+  forgetSession();
+  game = null;
+  isLeader = false;
+  home();
 }
 
 async function loadLobbyPlayers() {
