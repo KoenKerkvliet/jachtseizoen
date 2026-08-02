@@ -9,6 +9,27 @@ let hints = [];
 let ownPlayerId = null;
 let hintTimer = null;
 let knownHintIds = new Set();
+const ACTIVE_SESSION_KEY = 'jachtseizoen-active-session';
+
+function rememberSession() {
+  localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
+    gameId: game.id,
+    role: selectedRole
+  }));
+}
+
+function forgetSession() {
+  localStorage.removeItem(ACTIVE_SESSION_KEY);
+}
+
+function savedSession() {
+  try {
+    return JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY));
+  } catch (error) {
+    forgetSession();
+    return null;
+  }
+}
 
 const roles = {
   boef: ['🕶️', 'Boef'],
@@ -106,6 +127,7 @@ async function createGame() {
 
     game = savedGame;
     isLeader = true;
+    rememberSession();
     sessionScreen();
   } catch (error) {
     alert('Sessie maken lukt nog niet: ' + (error.message || 'onbekende fout'));
@@ -152,6 +174,7 @@ async function joinGame() {
     game = savedGame;
     selectedRole = role;
     isLeader = savedGame.created_by === currentUserId;
+    rememberSession();
     sessionScreen();
   } catch (error) {
     alert('Deelnemen lukt nog niet: ' + (error.message || 'onbekende fout'));
@@ -169,7 +192,7 @@ function sessionScreen() {
   }
 
   const leaderAction = isLeader
-    ? '<button class="primary" style="margin-top:20px" onclick="startSharedGame()">Start het spel <span>▶</span></button>'
+    ? '<button class="primary" style="margin-top:20px" onclick="startSharedGame()">Start het spel <span>▶</span></button><button class="secondary" onclick="stopGame()">Stop sessie <span>■</span></button>'
     : '<p class="tiny">Wachten tot de spelleider het spel start…</p>';
 
   app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
@@ -222,6 +245,7 @@ function gameScreen() {
     + '<section class="timer"><small>Jouw rol: ' + role[0] + ' ' + role[1] + '</small><div class="clock" id="clock">--:--</div></section>'
     + '<div class="map"><span class="pin"></span><span class="map-label">Speelgebied volgt hier</span></div>'
     + '<section id="hint-panel" class="card mission"><span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Hints worden geladen…</p></div></section>'
+    + (isLeader ? '<button class="secondary" onclick="stopGame()">Stop spel en verwijder foto-hints <span>■</span></button>' : '')
     + '<p class="tiny">Deze klok komt uit de gedeelde eindtijd van de sessie.</p>';
 
   updateClock();
@@ -343,6 +367,26 @@ async function showLatestHint() {
   window.open(signed.data.signedUrl, '_blank', 'noopener');
 }
 
+async function stopGame(autoStop) {
+  if (!autoStop && !confirm('Weet je zeker dat je het spel wilt stoppen? Foto-hints worden verwijderd.')) return;
+
+  const paths = hints.map(function (hint) { return hint.image_path; });
+  const result = await window.supabaseClient.rpc('end_game', { p_game_id: game.id });
+
+  if (result.error) {
+    if (!autoStop) alert('Stoppen lukt niet: ' + result.error.message);
+    return;
+  }
+
+  if (paths.length) {
+    await window.supabaseClient.storage.from('game-hints').remove(paths);
+  }
+
+  forgetSession();
+  game = null;
+  home();
+}
+
 function updateClock() {
   const clock = document.querySelector('#clock');
   if (!clock || !game.ends_at) return;
@@ -356,6 +400,7 @@ function updateClock() {
   if (seconds === 0) {
     clearInterval(clockTimer);
     clock.textContent = 'TIJD OM';
+    stopGame(true);
   }
 }
 
@@ -363,7 +408,23 @@ async function initialize() {
   app.innerHTML = '<p class="tiny">Veilige spelverbinding wordt gemaakt…</p>';
   try {
     await ensureAnonymousSession();
-    home();
+    const stored = savedSession();
+    if (!stored) {
+      home();
+      return;
+    }
+
+    selectedRole = stored.role;
+    const result = await window.supabaseClient.rpc('get_game_state', { p_game_id: stored.gameId });
+    if (result.error || !result.data || one(result.data).status === 'ended') {
+      forgetSession();
+      home();
+      return;
+    }
+
+    game = one(result.data);
+    isLeader = game.created_by === currentUserId;
+    sessionScreen();
   } catch (error) {
     app.innerHTML = '<section class="card"><h2>Verbinding mislukt</h2><p>Controleer of tijdelijk anoniem deelnemen in Supabase aanstaat en vernieuw daarna de pagina.</p></section>';
   }
