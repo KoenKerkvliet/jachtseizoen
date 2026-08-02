@@ -85,3 +85,30 @@ revoke all on function public.create_game(text,smallint,text,text,smallint) from
 grant execute on function public.create_game(text,smallint,text,text,smallint) to authenticated;
 revoke all on function public.sync_game_health(uuid) from public;
 grant execute on function public.sync_game_health(uuid) to authenticated;
+
+
+create or replace function public.submit_hint(p_game_id uuid, p_image_path text)
+returns public.game_hints
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare current_game public.games; current_player public.players; hint_round integer; new_hint public.game_hints;
+begin
+  if auth.uid() is null then raise exception 'Je moet eerst anoniem inloggen.'; end if;
+  select * into current_game from public.games where id=p_game_id and status='playing';
+  if current_game.id is null then raise exception 'Dit spel is niet actief.'; end if;
+  select * into current_player from public.players where game_id=p_game_id and user_id=auth.uid() and role='boef';
+  if current_player.id is null then raise exception 'Alleen boeven kunnen een foto-hint plaatsen.'; end if;
+  if p_image_path not like p_game_id::text || '/' || auth.uid()::text || '/%' then raise exception 'Ongeldig fotopad.'; end if;
+  hint_round := floor(extract(epoch from now() - current_game.start_at) / (current_game.hint_interval_minutes * 60))::integer;
+  if hint_round < 1 then raise exception 'De eerste foto-hint is nog niet nodig.'; end if;
+  insert into public.game_hints (game_id,player_id,round_number,image_path)
+  values (p_game_id,current_player.id,hint_round,p_image_path)
+  returning * into new_hint;
+  return new_hint;
+end;
+$$;
+
+revoke all on function public.submit_hint(uuid,text) from public;
+grant execute on function public.submit_hint(uuid,text) to authenticated;
