@@ -202,7 +202,7 @@ function sessionScreen() {
 
   const leaderAction = isLeader
     ? '<button class="primary" style="margin-top:20px" onclick="startSharedGame()">Start het spel <span>▶</span></button><button class="secondary" onclick="stopGame()">Stop sessie <span>■</span></button>'
-    : '<p class="tiny">Wachten tot de spelleider het spel start…</p>';
+    : '<section class="card mission" style="margin-top:20px"><span class="mission-icon">⏳</span><div><h2>Bijna zover</h2><p>De spelleider start het spel zodra iedereen klaar is.</p></div></section>';
 
   app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
     + '<section class="timer"><small>Spel wordt voorbereid</small><div class="clock">KLAAR?</div></section>'
