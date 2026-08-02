@@ -231,7 +231,11 @@ async function loadLobbyPlayers() {
     .eq('game_id', game.id)
     .order('joined_at', { ascending: true });
 
-  if (result.error) return;
+  if (result.error) {
+    const panel = document.querySelector('#lobby-players');
+    if (panel) panel.innerHTML = '<h2>Deelnemers</h2><p>Deelnemers laden lukt niet. Vernieuw na het uitvoeren van de lobby-herstelstap.</p>';
+    return;
+  }
   lobbyPlayers = result.data || [];
   renderLobbyPlayers();
 }
