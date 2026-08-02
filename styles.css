@@ -27,3 +27,9 @@ label { display:block; margin:16px 0 7px; font-weight:760; font-size:.93rem; } i
 .mission { display:flex; gap:13px; align-items:flex-start; }.mission-icon { width:42px; height:42px; display:grid; place-items:center; background:#fff0c8; border-radius:13px; font-size:1.25rem; }.mission p { margin:2px 0 0; color:#587169; font-size:.91rem; }
 .status { display:flex; gap:8px; align-items:center; color:#2c765d; font-size:.87rem; font-weight:750; }.dot { width:9px; height:9px; background:#4fc27d; border-radius:50%; }
 @media (min-width:600px){ #app{margin:18px auto;min-height:calc(100vh - 36px);border-radius:30px;} }
+
+.area-map { height: 280px; border-radius: 20px; overflow: hidden; border: 1px solid var(--line); margin: 14px 0; }
+.map-tools { display: flex; gap: 10px; margin-top: 10px; }
+.map-tools button { flex: 1; }
+.map-note { color:#587169; font-size:.9rem; line-height:1.4; margin: 10px 0 0; }
+.leaflet-control-attribution { font-size: 9px; }
