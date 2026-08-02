@@ -4,6 +4,7 @@ let game = null;
 let isLeader = false;
 let clockTimer = null;
 let stateTimer = null;
+let currentUserId = null;
 
 const roles = {
   boef: ['🕶️', 'Boef'],
@@ -16,9 +17,14 @@ function one(data) {
 
 async function ensureAnonymousSession() {
   const current = await window.supabaseClient.auth.getSession();
-  if (current.data.session) return;
+  if (current.data.session) {
+    currentUserId = current.data.session.user.id;
+    return;
+  }
+
   const result = await window.supabaseClient.auth.signInAnonymously();
   if (result.error) throw result.error;
+  currentUserId = result.data.session.user.id;
 }
 
 function stopTimers() {
@@ -139,7 +145,7 @@ async function joinGame() {
 
     game = savedGame;
     selectedRole = role;
-    isLeader = false;
+    isLeader = savedGame.created_by === currentUserId;
     sessionScreen();
   } catch (error) {
     alert('Deelnemen lukt nog niet: ' + (error.message || 'onbekende fout'));
