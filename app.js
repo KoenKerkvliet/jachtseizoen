@@ -95,8 +95,16 @@ function createScreen() {
 }
 
 function chooseRole(role) {
+  const playerName = document.querySelector('#hostName').value;
+  const gameName = document.querySelector('#gameName').value;
+  const duration = document.querySelector('#duration').value;
+
   selectedRole = role;
   createScreen();
+
+  document.querySelector('#hostName').value = playerName;
+  document.querySelector('#gameName').value = gameName;
+  document.querySelector('#duration').value = duration;
 }
 
 async function createGame() {
