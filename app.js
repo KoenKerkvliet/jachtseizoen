@@ -54,37 +54,45 @@ async function startGame() {
   const name = document.querySelector('#gameName').value.trim() || 'Jachtseizoen';
   const playerName = document.querySelector('#hostName').value.trim();
   const duration = Number(document.querySelector('#duration').value);
+  const button = document.querySelector('.primary');
 
   if (playerName.length < 2) {
     alert('Vul je naam in.');
     return;
   }
 
-  const button = document.querySelector('.primary');
   button.disabled = true;
   button.textContent = 'Sessie maken…';
 
-  const result = await window.supabaseClient.rpc('create_game', {
-    p_title: name,
-    p_duration_minutes: duration,
-    p_display_name: playerName,
-    p_role: selectedRole
-  });
+  try {
+    await ensureAnonymousSession();
 
-  if (result.error) {
-    alert('Er ging iets mis: ' + result.error.message);
+    const result = await window.supabaseClient.rpc('create_game', {
+      p_title: name,
+      p_duration_minutes: duration,
+      p_display_name: playerName,
+      p_role: selectedRole
+    });
+
+    if (result.error) throw result.error;
+
+    const savedGame = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (!savedGame || !savedGame.join_code) {
+      throw new Error('De sessie is niet opgeslagen. Probeer het opnieuw.');
+    }
+
+    game = {
+      name: savedGame.title,
+      role: selectedRole,
+      code: savedGame.join_code,
+      minutes: savedGame.duration_minutes
+    };
+    gameScreen();
+  } catch (error) {
+    alert('Sessie maken lukt nog niet: ' + (error.message || 'onbekende fout'));
     button.disabled = false;
     button.innerHTML = 'Maak sessie <span>→</span>';
-    return;
   }
-
-  game = {
-    name: result.data.title,
-    role: selectedRole,
-    code: result.data.join_code,
-    minutes: result.data.duration_minutes
-  };
-  gameScreen();
 }
 
 function joinScreen() {
@@ -100,36 +108,44 @@ async function joinGame() {
   const gameCode = document.querySelector('#joinCode').value.trim().toUpperCase();
   const playerName = document.querySelector('#playerName').value.trim();
   const role = document.querySelector('#joinRole').value;
+  const button = document.querySelector('.primary');
 
   if (gameCode.length !== 4 || playerName.length < 2) {
     alert('Vul je naam en een code van vier tekens in.');
     return;
   }
 
-  const button = document.querySelector('.primary');
   button.disabled = true;
   button.textContent = 'Verbinden…';
 
-  const result = await window.supabaseClient.rpc('join_game', {
-    p_join_code: gameCode,
-    p_display_name: playerName,
-    p_role: role
-  });
+  try {
+    await ensureAnonymousSession();
 
-  if (result.error) {
-    alert('Er ging iets mis: ' + result.error.message);
+    const result = await window.supabaseClient.rpc('join_game', {
+      p_join_code: gameCode,
+      p_display_name: playerName,
+      p_role: role
+    });
+
+    if (result.error) throw result.error;
+
+    const savedGame = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (!savedGame || !savedGame.join_code) {
+      throw new Error('Deze sessie kon niet worden gevonden.');
+    }
+
+    game = {
+      name: savedGame.title,
+      code: savedGame.join_code,
+      role: role,
+      minutes: savedGame.duration_minutes
+    };
+    gameScreen();
+  } catch (error) {
+    alert('Deelnemen lukt nog niet: ' + (error.message || 'onbekende fout'));
     button.disabled = false;
     button.innerHTML = 'Ga naar het spel <span>→</span>';
-    return;
   }
-
-  game = {
-    name: result.data.title,
-    code: result.data.join_code,
-    role: role,
-    minutes: result.data.duration_minutes
-  };
-  gameScreen();
 }
 
 function gameScreen() {
