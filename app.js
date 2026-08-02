@@ -5,6 +5,10 @@ let isLeader = false;
 let clockTimer = null;
 let stateTimer = null;
 let currentUserId = null;
+let hints = [];
+let ownPlayerId = null;
+let hintTimer = null;
+let knownHintIds = new Set();
 
 const roles = {
   boef: ['🕶️', 'Boef'],
@@ -30,8 +34,10 @@ async function ensureAnonymousSession() {
 function stopTimers() {
   clearInterval(clockTimer);
   clearInterval(stateTimer);
+  clearInterval(hintTimer);
   clockTimer = null;
   stateTimer = null;
+  hintTimer = null;
 }
 
 function home() {
@@ -215,11 +221,126 @@ function gameScreen() {
     + '<div class="status"><span class="dot"></span> Spel is bezig</div>'
     + '<section class="timer"><small>Jouw rol: ' + role[0] + ' ' + role[1] + '</small><div class="clock" id="clock">--:--</div></section>'
     + '<div class="map"><span class="pin"></span><span class="map-label">Speelgebied volgt hier</span></div>'
-    + '<section class="card mission"><span class="mission-icon">📸</span><div><h2>Eerste opdracht</h2><p>Boeven: maak een foto-hint. Vangers: volg de hints zodra we die in de volgende stap toevoegen.</p></div></section>'
+    + '<section id="hint-panel" class="card mission"><span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Hints worden geladen…</p></div></section>'
     + '<p class="tiny">Deze klok komt uit de gedeelde eindtijd van de sessie.</p>';
 
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
+  loadHints(false);
+  hintTimer = setInterval(function () { loadHints(true); }, 4000);
+}
+
+function currentHintRound() {
+  return Math.floor((Date.now() - new Date(game.start_at).getTime()) / 300000);
+}
+
+function secondsUntilNextHint() {
+  const start = new Date(game.start_at).getTime();
+  const elapsed = Date.now() - start;
+  return Math.max(0, Math.ceil((300000 - (elapsed % 300000)) / 1000));
+}
+
+function hintTime(seconds) {
+  return String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+}
+
+async function loadHints(announce) {
+  const own = await window.supabaseClient
+    .from('players')
+    .select('id')
+    .eq('game_id', game.id)
+    .eq('user_id', currentUserId)
+    .maybeSingle();
+
+  if (!own.error && own.data) ownPlayerId = own.data.id;
+
+  const result = await window.supabaseClient
+    .from('game_hints')
+    .select('id, player_id, round_number, image_path, created_at')
+    .eq('game_id', game.id)
+    .order('created_at', { ascending: false });
+
+  if (result.error) return;
+
+  const nextHints = result.data || [];
+  if (announce && selectedRole === 'vanger') {
+    const newHint = nextHints.find(function (hint) { return !knownHintIds.has(hint.id); });
+    if (newHint) alert('Nieuwe foto-hint van een boef!');
+  }
+
+  hints = nextHints;
+  knownHintIds = new Set(nextHints.map(function (hint) { return hint.id; }));
+  renderHintPanel();
+}
+
+function renderHintPanel() {
+  const panel = document.querySelector('#hint-panel');
+  if (!panel) return;
+
+  const round = currentHintRound();
+  const ownHint = hints.find(function (hint) {
+    return hint.player_id === ownPlayerId && hint.round_number === round;
+  });
+
+  if (selectedRole === 'boef') {
+    if (round < 1) {
+      panel.innerHTML = '<span class="mission-icon">📸</span><div><h2>Volgende foto-hint over ' + hintTime(secondsUntilNextHint()) + '</h2><p>Na vijf minuten moet iedere boef een foto-hint delen.</p></div>';
+    } else if (ownHint) {
+      panel.innerHTML = '<span class="mission-icon">✅</span><div><h2>Foto-hint gedeeld</h2><p>Goed gedaan. De volgende hint is over ' + hintTime(secondsUntilNextHint()) + ' nodig.</p></div>';
+    } else {
+      panel.innerHTML = '<span class="mission-icon">📸</span><div><h2>Foto-hint vereist</h2><p>Maak nu een foto. De vangers krijgen meteen een melding.</p><input id="hint-file" type="file" accept="image/*" capture="environment" style="display:none" onchange="uploadHint(this.files[0])"><button class="secondary" onclick="document.querySelector(\'#hint-file\').click()">Maak foto-hint <span>📷</span></button></div>';
+    }
+    return;
+  }
+
+  const latest = hints[0];
+  if (!latest) {
+    panel.innerHTML = '<span class="mission-icon">📸</span><div><h2>Foto-hints</h2><p>Er zijn nog geen hints. Zodra een boef een foto deelt, krijg jij een melding.</p></div>';
+    return;
+  }
+
+  panel.innerHTML = '<span class="mission-icon">🔔</span><div><h2>Laatste foto-hint</h2><p>Een boef deelde een hint. Tik op bekijken om de foto te openen.</p><button class="secondary" onclick="showLatestHint()">Bekijk foto-hint <span>→</span></button></div>';
+}
+
+async function uploadHint(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/') || file.size > 6000000) {
+    alert('Kies een foto van maximaal 6 MB.');
+    return;
+  }
+
+  const path = game.id + '/' + currentUserId + '/' + Date.now() + '-' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const upload = await window.supabaseClient.storage.from('game-hints').upload(path, file, {
+    contentType: file.type,
+    upsert: false
+  });
+
+  if (upload.error) {
+    alert('Foto uploaden lukt niet: ' + upload.error.message);
+    return;
+  }
+
+  const saved = await window.supabaseClient.rpc('submit_hint', {
+    p_game_id: game.id,
+    p_image_path: path
+  });
+
+  if (saved.error) {
+    alert('Foto-hint plaatsen lukt niet: ' + saved.error.message);
+    return;
+  }
+
+  await loadHints(false);
+}
+
+async function showLatestHint() {
+  if (!hints[0]) return;
+  const signed = await window.supabaseClient.storage.from('game-hints').createSignedUrl(hints[0].image_path, 60);
+  if (signed.error) {
+    alert('De foto kon niet worden geopend.');
+    return;
+  }
+  window.open(signed.data.signedUrl, '_blank', 'noopener');
 }
 
 function updateClock() {
