@@ -77,7 +77,7 @@ begin
   end if;
 
   loop
-    new_code := upper(substring(encode(gen_random_bytes(4), 'hex') from 1 for 4));
+    new_code := upper(substring(md5(random()::text || clock_timestamp()::text || auth.uid()::text) from 1 for 4));
     exit when not exists (select 1 from public.games where join_code = new_code);
   end loop;
 
