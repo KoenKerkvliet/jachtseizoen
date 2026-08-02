@@ -9,6 +9,7 @@ let hints = [];
 let ownPlayerId = null;
 let hintTimer = null;
 let knownHintIds = new Set();
+let lobbyPlayers = [];
 const ACTIVE_SESSION_KEY = 'jachtseizoen-active-session';
 
 function rememberSession() {
@@ -198,10 +199,38 @@ function sessionScreen() {
   app.innerHTML = '<header class="game-header"><div class="brand"><span class="brand-badge">↗</span> Jachtseizoen</div><span class="code">' + game.join_code + '</span></header>'
     + '<section class="timer"><small>Spel wordt voorbereid</small><div class="clock">KLAAR?</div></section>'
     + '<section class="card mission"><span class="mission-icon">👥</span><div><h2>De lobby is open</h2><p>Deel code <strong>' + game.join_code + '</strong> met je groep. Iedereen ziet de gedeelde start zodra de spelleider begint.</p></div></section>'
+    + '<section id="lobby-players" class="card"><h2>Deelnemers</h2><p>Deelnemers laden…</p></section>'
     + leaderAction
     + '<p class="tiny">Jouw speelrol: ' + roles[selectedRole][0] + ' ' + roles[selectedRole][1] + '</p>';
 
+  loadLobbyPlayers();
   watchGame();
+}
+
+async function loadLobbyPlayers() {
+  const result = await window.supabaseClient
+    .from('players')
+    .select('display_name, role, user_id, joined_at')
+    .eq('game_id', game.id)
+    .order('joined_at', { ascending: true });
+
+  if (result.error) return;
+  lobbyPlayers = result.data || [];
+  renderLobbyPlayers();
+}
+
+function renderLobbyPlayers() {
+  const panel = document.querySelector('#lobby-players');
+  if (!panel) return;
+
+  const rows = lobbyPlayers.map(function (player) {
+    const isHost = player.user_id === game.created_by;
+    const icon = player.role === 'boef' ? '🕶️' : player.role === 'vanger' ? '🧭' : '🎯';
+    const role = player.role === 'boef' ? 'Boef' : player.role === 'vanger' ? 'Vanger' : 'Leider';
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line)"><strong>' + icon + ' ' + player.display_name + '</strong><span style="color:#587169;font-size:.9rem">' + role + (isHost ? ' · Spelleider' : '') + '</span></div>';
+  }).join('');
+
+  panel.innerHTML = '<h2>Deelnemers (' + lobbyPlayers.length + ')</h2>' + rows;
 }
 
 async function startSharedGame() {
@@ -228,7 +257,12 @@ async function refreshGameState() {
     if (nextGame && nextGame.status !== game.status) {
       game = nextGame;
       sessionScreen();
+      return;
     }
+  }
+
+  if (game && game.status === 'lobby') {
+    loadLobbyPlayers();
   }
 }
 
