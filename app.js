@@ -431,17 +431,27 @@ async function startSharedGame() {
 }
 
 async function refreshGameState() {
+  const previousStatus = game.status;
   const healthResult = await window.supabaseClient.rpc('sync_game_health', { p_game_id: game.id });
-  if (!healthResult.error && healthResult.data) game = one(healthResult.data);
+  const healthGame = !healthResult.error && healthResult.data ? one(healthResult.data) : null;
+
+  if (healthGame && healthGame.status !== previousStatus) {
+    game = healthGame;
+    sessionScreen();
+    return;
+  }
+
+  if (healthGame) game = healthGame;
 
   const result = await window.supabaseClient.rpc('get_game_state', { p_game_id: game.id });
   if (!result.error) {
     const nextGame = one(result.data);
-    if (nextGame && nextGame.status !== game.status) {
+    if (nextGame && nextGame.status !== previousStatus) {
       game = nextGame;
       sessionScreen();
       return;
     }
+    if (nextGame) game = nextGame;
   }
 
   if (game && game.status === 'lobby') {
