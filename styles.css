@@ -33,3 +33,7 @@ label { display:block; margin:16px 0 7px; font-weight:760; font-size:.93rem; } i
 .map-tools button { flex: 1; }
 .map-note { color:#587169; font-size:.9rem; line-height:1.4; margin: 10px 0 0; }
 .leaflet-control-attribution { font-size: 9px; }
+
+
+.heart-meter { display:flex; align-items:center; gap:7px; margin:8px 0 12px; }
+.heart-meter img { display:block; width:42px; height:42px; filter:drop-shadow(0 3px 3px rgba(82,35,35,.15)); }
