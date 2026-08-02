@@ -95,6 +95,9 @@ function createScreen() {
     + '<label>Jouw naam</label><input id="hostName" placeholder="Bijvoorbeeld: Koen" maxlength="20">'
     + '<label>Naam van het spel</label><input id="gameName" value="Jachtseizoen in de buurt" maxlength="40">'
     + '<label>Speelduur</label><select id="duration"><option value="45">45 minuten</option><option value="60" selected>1 uur</option><option value="90">1 uur en 30 minuten</option></select>'
+    + '<label>Startadres</label><input id="startAddress" placeholder="Bijvoorbeeld: Dorpsstraat 12" maxlength="80">'
+    + '<label>Plaats</label><input id="startCity" placeholder="Bijvoorbeeld: Utrecht" maxlength="60">'
+    + '<p class="map-note">De kaart focust op dit adres. Het adres wordt alleen binnen de sessie gedeeld.</p>'
     + '<label>Jouw speelrol</label><div class="choice-grid">' + roleButtons() + '</div>'
     + '<button class="primary" style="margin-top:26px" onclick="createGame()">Maak sessie <span>→</span></button>';
 }
@@ -103,6 +106,8 @@ function chooseRole(role) {
   const playerName = document.querySelector('#hostName').value;
   const gameName = document.querySelector('#gameName').value;
   const duration = document.querySelector('#duration').value;
+  const startAddress = document.querySelector('#startAddress').value;
+  const startCity = document.querySelector('#startCity').value;
 
   selectedRole = role;
   createScreen();
@@ -110,12 +115,16 @@ function chooseRole(role) {
   document.querySelector('#hostName').value = playerName;
   document.querySelector('#gameName').value = gameName;
   document.querySelector('#duration').value = duration;
+  document.querySelector('#startAddress').value = startAddress;
+  document.querySelector('#startCity').value = startCity;
 }
 
 async function createGame() {
   const name = document.querySelector('#gameName').value.trim() || 'Jachtseizoen';
   const playerName = document.querySelector('#hostName').value.trim();
   const duration = Number(document.querySelector('#duration').value);
+  const startAddress = document.querySelector('#startAddress').value.trim();
+  const startCity = document.querySelector('#startCity').value.trim();
   const button = document.querySelector('.primary');
 
   if (playerName.length < 2) {
@@ -123,11 +132,18 @@ async function createGame() {
     return;
   }
 
+  if (startAddress.length < 4 || startCity.length < 2) {
+    alert('Vul een straat met huisnummer en plaats in.');
+    return;
+  }
+
   button.disabled = true;
-  button.textContent = 'Sessie maken…';
+  button.textContent = 'Adres zoeken…';
 
   try {
     await ensureAnonymousSession();
+    const location = await geocodeStartAddress(startAddress, startCity);
+    button.textContent = 'Sessie maken…';
     const result = await window.supabaseClient.rpc('create_game', {
       p_title: name,
       p_duration_minutes: duration,
@@ -139,7 +155,15 @@ async function createGame() {
     const savedGame = one(result.data);
     if (!savedGame || !savedGame.id) throw new Error('De sessie is niet opgeslagen.');
 
-    game = savedGame;
+    const locationResult = await window.supabaseClient.rpc('set_start_location', {
+      p_game_id: savedGame.id,
+      p_address: startAddress + ', ' + startCity,
+      p_lat: location.lat,
+      p_lng: location.lng
+    });
+    if (locationResult.error) throw locationResult.error;
+
+    game = one(locationResult.data);
     isLeader = true;
     rememberSession();
     sessionScreen();
@@ -148,6 +172,23 @@ async function createGame() {
     button.disabled = false;
     button.innerHTML = 'Maak sessie <span>→</span>';
   }
+}
+
+async function geocodeStartAddress(address, city) {
+  const query = new URLSearchParams({
+    format: 'jsonv2',
+    limit: '1',
+    countrycodes: 'nl',
+    q: address + ', ' + city
+  });
+
+  const response = await fetch('https://nominatim.openstreetmap.org/search?' + query.toString(), {
+    headers: { 'Accept': 'application/json' }
+  });
+  if (!response.ok) throw new Error('Adres zoeken lukt tijdelijk niet.');
+  const results = await response.json();
+  if (!results.length) throw new Error('Adres niet gevonden. Controleer straat, huisnummer en plaats.');
+  return { lat: Number(results[0].lat), lng: Number(results[0].lon) };
 }
 
 function joinScreen() {
@@ -242,10 +283,20 @@ function initPlayAreaMap(elementId, editable) {
   isDrawingArea = false;
   renderPlayArea();
 
+  const startPoint = Number.isFinite(Number(game.start_lat)) && Number.isFinite(Number(game.start_lng))
+    ? [Number(game.start_lat), Number(game.start_lng)]
+    : null;
+
   if (areaPoints.length >= 3) {
     areaMap.fitBounds(areaPoints, { padding: [24, 24] });
+  } else if (startPoint) {
+    areaMap.setView(startPoint, 16);
   } else if (editable) {
     areaMap.setView([52.0907, 5.1214], 13);
+  }
+
+  if (startPoint) {
+    L.marker(startPoint).addTo(areaMap).bindPopup('Startlocatie');
   }
 
   if (editable) {
